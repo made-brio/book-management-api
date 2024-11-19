@@ -1,35 +1,62 @@
 package main
 
 import (
+	"book-management-api/controllers"
+	"book-management-api/database"
+	"book-management-api/middleware"
 	"database/sql"
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+)
 
-	"book-management-api/controllers"
-	"book-management-api/middleware"
+var (
+	DB  *sql.DB
+	err error
 )
 
 func main() {
-	// Koneksi ke database
-	db, err := sql.Open("postgres", "your_connection_string_here")
+	err = godotenv.Load("config/.env")
+
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		fmt.Println("Warning: .env file not found, using default environment variables.")
 	}
-	defer db.Close()
+
+	psqlInfo := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_PORT"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"),
+		os.Getenv("DB_NAME"),
+	)
+
+	DB, err = sql.Open("postgres", psqlInfo)
+
+	if err != nil {
+		log.Fatalf("Failed to connect to the database: %v", err)
+	}
+
+	defer DB.Close()
+	err = DB.Ping()
+	if err != nil {
+		panic(err)
+	}
+
+	database.DBMigrate(DB)
 
 	// Inisialisasi controller
-	bookController := controllers.NewBookController(db)
-	categoryController := controllers.NewCategoryController(db)
+	bookController := controllers.NewBookController(DB)
+	categoryController := controllers.NewCategoryController(DB)
+	authController := controllers.NewAuthController(DB)
 
-	// Inisialisasi router Gin
 	router := gin.Default()
-
 	// Public routes
-	router.POST("/api/users/login", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "Login endpoint"})
-	})
+	router.POST("/api/users/login", authController.Login)
+	router.POST("/api/users/register", authController.Register)
 
 	// Protected routes dengan middleware JWTAuth
 	protected := router.Group("/api", middleware.JWTAuth())
@@ -47,7 +74,5 @@ func main() {
 		protected.DELETE("/categories/:id", categoryController.DeleteCategory)
 		protected.GET("/categories/:id/books", categoryController.GetBooksByCategory)
 	}
-
-	// Menjalankan server
-	router.Run(":8080")
+	router.Run(":8085")
 }

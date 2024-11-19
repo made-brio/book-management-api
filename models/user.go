@@ -1,6 +1,8 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 type User struct {
 	ID         int       `json:"id"`
@@ -9,5 +11,5 @@ type User struct {
 	CreatedAt  time.Time `json:"created_at"`
 	CreatedBy  string    `json:"created_by"`
 	ModifiedAt time.Time `json:"modified_at"`
-	ModifiedBy string    `json:"modified_by"`
+	ModifiedBy *string   `json:"modified_by"`
 }

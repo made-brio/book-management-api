@@ -1,3 +1,7 @@
+
+-- +migrate Up
+-- +migrate StatementBegin
+
 -- Tabel Kategori
 CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
@@ -35,3 +39,4 @@ CREATE TABLE users (
     modified_at TIMESTAMP DEFAULT NOW(),
     modified_by VARCHAR(255)
 );
+-- +migrate StatementEnd

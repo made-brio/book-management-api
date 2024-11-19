@@ -1,8 +1,11 @@
 package controllers
 
 import (
+	"book-management-api/models"
+	"book-management-api/repository"
 	"database/sql"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,24 +19,47 @@ func NewCategoryController(db *sql.DB) *CategoryController {
 }
 
 func (cc *CategoryController) GetAllCategories(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "Get all categories"})
+	var (
+		result gin.H
+	)
+
+	categories, err := repository.GetAllCategories(cc.DB)
+
+	if err != nil {
+		result = gin.H{
+			"result": err.Error(),
+		}
+	} else {
+		result = gin.H{
+			"result": categories,
+		}
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func (cc *CategoryController) CreateCategory(c *gin.Context) {
-	c.JSON(http.StatusCreated, gin.H{"message": "Category created"})
+	var category models.Category
+
+	err := c.BindJSON(&category)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	err = repository.CreateCategory(cc.DB, category)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, category)
 }
 
 func (cc *CategoryController) GetCategoryByID(c *gin.Context) {
-	id := c.Param("id")
-	var category struct {
-		ID        int    `json:"id"`
-		Name      string `json:"name"`
-		CreatedAt string `json:"created_at"`
-		CreatedBy string `json:"created_by"`
-	}
+	id, _ := strconv.Atoi(c.Param("id"))
 
-	query := `SELECT id, name, created_at, created_by FROM categories WHERE id = $1`
-	err := cc.DB.QueryRow(query, id).Scan(&category.ID, &category.Name, &category.CreatedAt, &category.CreatedBy)
+	category, err := repository.GetCategoryByID(cc.DB, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
@@ -47,67 +73,25 @@ func (cc *CategoryController) GetCategoryByID(c *gin.Context) {
 }
 
 func (cc *CategoryController) DeleteCategory(c *gin.Context) {
-	id := c.Param("id")
-
-	query := `DELETE FROM categories WHERE id = $1`
-	result, err := cc.DB.Exec(query, id)
+	var category models.Category
+	id, _ := strconv.Atoi(c.Param("id"))
+	category.ID = id
+	err := repository.DeleteCategory(cc.DB, category)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Category deleted successfully"})
+	c.JSON(http.StatusOK, category)
 }
 
 func (cc *CategoryController) GetBooksByCategory(c *gin.Context) {
-	id := c.Param("id")
-	rows, err := cc.DB.Query(`
-		SELECT id, title, description, image_url, release_year, price, total_page, thickness 
-		FROM books 
-		WHERE category_id = $1`, id)
+	id, _ := strconv.Atoi(c.Param("id"))
+	books, err := repository.GetBooksByCategory(cc.DB, id)
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch books by category"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
-
-	var books []struct {
-		ID          int    `json:"id"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		ImageURL    string `json:"image_url"`
-		ReleaseYear int    `json:"release_year"`
-		Price       int    `json:"price"`
-		TotalPage   int    `json:"total_page"`
-		Thickness   string `json:"thickness"`
-	}
-
-	for rows.Next() {
-		var book struct {
-			ID          int    `json:"id"`
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			ImageURL    string `json:"image_url"`
-			ReleaseYear int    `json:"release_year"`
-			Price       int    `json:"price"`
-			TotalPage   int    `json:"total_page"`
-			Thickness   string `json:"thickness"`
-		}
-		if err := rows.Scan(
-			&book.ID, &book.Title, &book.Description, &book.ImageURL,
-			&book.ReleaseYear, &book.Price, &book.TotalPage, &book.Thickness,
-		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read book data"})
-			return
-		}
-		books = append(books, book)
-	}
-
 	c.JSON(http.StatusOK, gin.H{"books": books})
 }
