@@ -1,9 +1,8 @@
 package main
 
 import (
-	"book-management-api/controllers"
 	"book-management-api/database"
-	"book-management-api/middleware"
+	"book-management-api/internal/routes"
 	"database/sql"
 	"fmt"
 	"log"
@@ -19,14 +18,18 @@ var (
 	err error
 )
 
-func main() {
+func init() {
+	// Load environment variables
 	err = godotenv.Load("config/.env")
-
 	if err != nil {
 		fmt.Println("Warning: .env file not found, using default environment variables.")
 	}
+}
 
-	psqlInfo := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
+func connectDatabase() (*sql.DB, error) {
+	// Database connection string
+	psqlInfo := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_PORT"),
 		os.Getenv("DB_USER"),
@@ -34,45 +37,44 @@ func main() {
 		os.Getenv("DB_NAME"),
 	)
 
-	DB, err = sql.Open("postgres", psqlInfo)
-
+	// Open database connection
+	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
-		log.Fatalf("Failed to connect to the database: %v", err)
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
+	// Verify connection
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	return db, nil
+}
+
+func main() {
+	// Connect to the database
+	DB, err = connectDatabase()
+	if err != nil {
+		log.Fatalf("Database connection error: %v", err)
+	}
 	defer DB.Close()
-	err = DB.Ping()
-	if err != nil {
-		panic(err)
+
+	// Run migrations
+	if err := database.DBMigrate(DB); err != nil {
+		log.Fatalf("Migration error: %v", err)
 	}
 
-	database.DBMigrate(DB)
-
-	// Inisialisasi controller
-	bookController := controllers.NewBookController(DB)
-	categoryController := controllers.NewCategoryController(DB)
-	authController := controllers.NewAuthController(DB)
-
+	// Initialize Gin router
 	router := gin.Default()
-	// Public routes
-	router.POST("/api/users/login", authController.Login)
-	router.POST("/api/users/register", authController.Register)
+	routes.RegisterRoutes(router, DB)
 
-	// Protected routes dengan middleware JWTAuth
-	protected := router.Group("/api", middleware.JWTAuth())
-	{
-		// Rute untuk buku
-		protected.GET("/books", bookController.GetAllBooks)
-		protected.POST("/books", bookController.CreateBook)
-		protected.GET("/books/:id", bookController.GetBookByID)
-		protected.DELETE("/books/:id", bookController.DeleteBook)
-
-		// Rute untuk kategori
-		protected.GET("/categories", categoryController.GetAllCategories)
-		protected.POST("/categories", categoryController.CreateCategory)
-		protected.GET("/categories/:id", categoryController.GetCategoryByID)
-		protected.DELETE("/categories/:id", categoryController.DeleteCategory)
-		protected.GET("/categories/:id/books", categoryController.GetBooksByCategory)
+	// Start the server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8085" // Default port
 	}
-	router.Run(":8085")
+	log.Printf("Server running on port %s", port)
+	if err := router.Run(":" + port); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
 }

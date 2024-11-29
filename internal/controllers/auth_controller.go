@@ -1,11 +1,11 @@
 package controllers
 
 import (
-	"book-management-api/models"
-	"book-management-api/repository"
+	"book-management-api/internal/models"
+	"book-management-api/internal/service"
 	"book-management-api/utils"
-	"database/sql"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -13,49 +13,51 @@ import (
 )
 
 type AuthController struct {
-	DB *sql.DB
+	AuthService *service.AuthService
 }
 
-func NewAuthController(db *sql.DB) *AuthController {
-	return &AuthController{DB: db}
+func NewAuthController(service *service.AuthService) *AuthController {
+	return &AuthController{AuthService: service}
 }
 
 func (ac *AuthController) Login(c *gin.Context) {
-	var user models.User
-
-	// Bind JSON input to struct
-	if err := c.ShouldBindJSON(&user); err != nil {
+	var userInput models.UserLoginRequest
+	if err := c.ShouldBindJSON(&userInput); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 
 	// Get stored password from repository
-	storedPassword, err := repository.GetPasswordByUsername(ac.DB, user.Username)
+	storedPassword, err := ac.AuthService.GetPasswordByUsername(userInput.Username)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
 	// Validate password
-	if !utils.CheckPasswordHash(user.Password, storedPassword) {
+	if !utils.CheckPasswordHash(userInput.Password, storedPassword) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
 	// Generate JWT token
-	token, err := generateJWT(user.Username)
+	secretKey := os.Getenv("JWT_SECRET")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"username": userInput.Username,
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+	})
+
+	tokenString, err := token.SignedString([]byte(secretKey))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
-	// Return the JWT token
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
-// Register method
-func (ac *AuthController) Register(c *gin.Context) {
-	var user models.User
+func (ac *AuthController) CreateUser(c *gin.Context) {
+	var user models.UserAccount
 
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -63,7 +65,7 @@ func (ac *AuthController) Register(c *gin.Context) {
 	}
 
 	// Check if user already exists
-	exists, err := repository.CheckUserExists(ac.DB, user.Username)
+	exists, err := ac.AuthService.CheckUserExists(user.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking user existence"})
 		return
@@ -81,27 +83,12 @@ func (ac *AuthController) Register(c *gin.Context) {
 	}
 
 	user.Password = hashedPassword
-	user.CreatedAt = time.Now()
-	user.CreatedBy = "system" // Use "system" or set dynamically if needed
 
-	// Create the user in the database
-	err = repository.CreateUser(ac.DB, user)
+	err = ac.AuthService.CreateUser(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating user"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
-}
-
-// Function to generate JWT token
-func generateJWT(username string) (string, error) {
-	secretKey := []byte("your_secret_key_here")
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"username": username,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
-	})
-
-	return token.SignedString(secretKey)
 }

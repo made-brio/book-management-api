@@ -12,7 +12,7 @@ import (
 var dbMigrations embed.FS
 var DbConnection *sql.DB
 
-func DBMigrate(dbParam *sql.DB) {
+func DBMigrate(dbParam *sql.DB) error {
 	migrations := &migrate.EmbedFileSystemMigrationSource{
 		FileSystem: dbMigrations,
 		Root:       "migrations",
@@ -23,4 +23,5 @@ func DBMigrate(dbParam *sql.DB) {
 	}
 	DbConnection = dbParam
 	fmt.Println("Migration success, applied", n, "migrations!")
+	return errs
 }
